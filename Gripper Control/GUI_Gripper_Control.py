@@ -4,11 +4,18 @@ from tkinter import messagebox
 import serial
 import threading
 import time
+import cv2
+from ultralytics import YOLO
+model = YOLO("yolov8n.pt")
 
 reading_ir = False
 ir_value = None
 ir_action_running = False
 
+
+camera_running = False
+camera_capture = None
+camera_window_name = "USB Camera"
 # Global variable to store the serial connection
 arduino = None
 
@@ -18,12 +25,12 @@ BAUDRATE = 9600
 
 # === DEFAULT SERVO SETTINGS ===
 default_servos = [
-    {"name": "Finger Right", "id": "7", "angle": 78},
-    {"name": "Finger Left", "id": "5", "angle": 96},
-    {"name": "Thumb", "id": "11", "angle": 90},
+    {"name": "Finger Right", "id": "5", "angle": 78},
+    {"name": "Finger Left", "id": "7", "angle": 96},
+    {"name": "Thumb", "id": "8", "angle": 90},
     {"name": "Finger Right Phi", "id": "12", "angle":125},
     {"name": "Finger Left Phi", "id": "14", "angle": 85},
-    {"name": "Thumb Phi", "id": "9", "angle": 109},
+    {"name": "Thumb Phi", "id": "10", "angle": 80},
 ]
 
 
@@ -113,7 +120,7 @@ def close_gripper():
     set_servo(5, 70)
     time.sleep(0.01)
 
-    set_servo(11,70)
+    set_servo(8,70)
     
 #open gripper
 def open_gripper():
@@ -123,7 +130,7 @@ def open_gripper():
     set_servo(5, 150)
     time.sleep(0.01)
 
-    set_servo(11, 150)
+    set_servo(8, 150)
         
         
 def set_servo(servo_id, angle):
@@ -236,6 +243,44 @@ def create_servo_row(row, name, servo_id, angle):
     }
 
 
+def toggle_camera():
+    global camera_running, camera_capture
+
+    if not camera_running:
+        camera_capture = cv2.VideoCapture(0)
+        if not camera_capture.isOpened():
+            messagebox.showerror("Camera Error", "Unable to open camera.")
+            return
+
+        camera_running = True
+        camera_button.config(text="Stop Camera")
+        show_camera_frame()
+    else:
+        camera_running = False
+        camera_button.config(text="Start Camera")
+        if camera_capture:
+            camera_capture.release()
+        cv2.destroyWindow(camera_window_name)
+
+def show_camera_frame():
+    global camera_running
+
+    if camera_running and camera_capture.isOpened():
+        ret, frame = camera_capture.read()
+        if ret:
+            results = model(frame)
+
+    # Annotate the frame with the results
+            annotated_frame = results[0].plot()
+            cv2.imshow(camera_window_name, annotated_frame)
+
+        # Show next frame after 10 ms
+        if cv2.getWindowProperty(camera_window_name, cv2.WND_PROP_VISIBLE) >= 1:
+            root.after(10, show_camera_frame)
+        else:
+            # User manually closed window
+            toggle_camera()
+
 
 def on_closing():
     global arduino, reading_ir
@@ -249,7 +294,7 @@ def on_closing():
 # Create the main window
 root = tk.Tk()
 root.title("Arduino Connector")
-root.geometry("600x600")
+root.geometry("700x700")
 
 root.protocol("WM_DELETE_WINDOW", on_closing)
 
@@ -296,6 +341,9 @@ stop_button.grid(row=0, column=1, padx=5)
 
 ir_action_button = tk.Button(root, text="Start IR Action", command=toggle_ir_action)
 ir_action_button.pack(pady=5)
+
+camera_button = tk.Button(root, text="Start Camera", command=toggle_camera)
+camera_button.pack(pady=6)
 
 # Start the UI loop
 root.mainloop()
