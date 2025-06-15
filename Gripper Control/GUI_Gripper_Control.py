@@ -6,7 +6,14 @@ import threading
 import time
 import cv2
 from ultralytics import YOLO
-model = YOLO("yolov8n.pt")
+
+import serial.tools.list_ports
+import matplotlib.pyplot as plt
+
+model = YOLO("Gripper Control/nivea_grasp.pt").to('cuda')
+
+closed_gripper = False
+timer = time.time()
 
 reading_ir = False
 ir_value = None
@@ -21,28 +28,58 @@ arduino = None
 
 # Port and baudrate can be changed if needed
 PORT = 'COM5'
+PORT = "/dev/ttyACM0" 
 BAUDRATE = 9600
+
+k =425
+
+
+
+def find_arduino_port():
+    ports = serial.tools.list_ports.comports()
+    for port in ports:
+        # Look for common Arduino identifiers
+        if "Arduino" in port.description or "ttyACM" in port.device or "ttyUSB" in port.device:
+            return port.device
+    return None
+
+
 
 # === DEFAULT SERVO SETTINGS ===
 default_servos = [
     {"name": "Finger Right", "id": "5", "angle": 78},
     {"name": "Finger Left", "id": "7", "angle": 96},
     {"name": "Thumb", "id": "8", "angle": 90},
-    {"name": "Finger Right Phi", "id": "12", "angle":125},
-    {"name": "Finger Left Phi", "id": "14", "angle": 85},
-    {"name": "Thumb Phi", "id": "10", "angle": 80},
+    {"name": "Finger Right Phi", "id": "10", "angle":125},
+    {"name": "Finger Left Phi", "id": "12", "angle": 85},
+    {"name": "Thumb Phi", "id": "14", "angle": 80},
 ]
 
+def init_servos():
+    set_servo(5, 130-5)
+    time.sleep(0.01)
+    set_servo(7, 130)
+    time.sleep(0.01)
+    set_servo(9, 130)
+    time.sleep(0.01)
+    set_servo(10, 100)
+    time.sleep(0.01)
+    set_servo(12, 45)
+    time.sleep(0.01)
+    set_servo(14, 80)
 
 
 
 def toggle_connection():
     global arduino
+    PORT = find_arduino_port()
     if arduino is None or not arduino.is_open:
         try:
             arduino = serial.Serial(port=PORT, baudrate=BAUDRATE, timeout=0.1)
             status_label.config(text="Connected", fg="green")
             connect_button.config(text="Disconnect")
+            time.sleep(0.1)
+            init_servos()
         except serial.SerialException as e:
             messagebox.showerror("Connection Error", str(e))
     else:
@@ -114,29 +151,35 @@ def read_ir_data():
 
 #close gripper
 def close_gripper():
-    set_servo(7, 70)
-    time.sleep(0.01)
+    angle = 83
+    set_servo(7, angle)
+    #time.sleep(0.001)
 
-    set_servo(5, 70)
-    time.sleep(0.01)
+    set_servo(5, angle-5)
+    #time.sleep(0.001)
 
-    set_servo(8,70)
+    set_servo(8,angle)
     
 #open gripper
 def open_gripper():
-    set_servo(7, 150)
-    time.sleep(0.01)
+    global closed_gripper, timer
+    angle= 130
+    set_servo(7, angle)
+    #time.sleep(0.001)
 
-    set_servo(5, 150)
-    time.sleep(0.01)
+    set_servo(5, angle-5)
+    #time.sleep(0.001)
 
-    set_servo(8, 150)
+    set_servo(8, angle)
+    closed_gripper = False
+    timer = time.time()
+    
         
         
 def set_servo(servo_id, angle):
     print(servo_id)
     print('angle before', angle)
-    if int(servo_id) == 5:
+    if int(servo_id) == 7:
         angle = abs(angle-180)
         print('angle after', angle)
         
@@ -247,7 +290,7 @@ def toggle_camera():
     global camera_running, camera_capture
 
     if not camera_running:
-        camera_capture = cv2.VideoCapture(0)
+        camera_capture = cv2.VideoCapture(2)
         if not camera_capture.isOpened():
             messagebox.showerror("Camera Error", "Unable to open camera.")
             return
@@ -263,16 +306,38 @@ def toggle_camera():
         cv2.destroyWindow(camera_window_name)
 
 def show_camera_frame():
-    global camera_running
+    global camera_running, k, closed_gripper, timer
 
     if camera_running and camera_capture.isOpened():
         ret, frame = camera_capture.read()
         if ret:
-            results = model(frame)
+            results = model(frame, verbose = False)
 
     # Annotate the frame with the results
             annotated_frame = results[0].plot()
+            frame_bgr = cv2.cvtColor(annotated_frame, cv2.COLOR_RGB2BGR)
             cv2.imshow(camera_window_name, annotated_frame)
+            key = cv2.waitKey(1) & 0xFF
+            #= ord('q')
+            pred_idx = results[0].probs.top1
+            
+            if pred_idx == 1 and closed_gripper == False and time.time()- timer >= 5:
+                close_gripper()
+                closed_gripper =True
+                
+
+          
+
+            print("Predicted class:", pred_idx, closed_gripper)              
+
+
+            if key== ord('s'):
+                     #cv2.imwrite(f'yolo_training/training_data/grasp_position/negative/negative_{k}.jpg',frame)
+                     cv2.imwrite(f'yolo_training/training_data/grasp_position/positive/positive_{k}.jpg',frame)
+                     cv2.imwrite('test.jpg', frame)
+                     print(f'img_{k}.jpg')
+                     k+=1
+                
 
         # Show next frame after 10 ms
         if cv2.getWindowProperty(camera_window_name, cv2.WND_PROP_VISIBLE) >= 1:
@@ -297,6 +362,8 @@ root.title("Arduino Connector")
 root.geometry("700x700")
 
 root.protocol("WM_DELETE_WINDOW", on_closing)
+
+
 
 # Status label
 status_label = tk.Label(root, text="Disconnected", fg="red", font=("Arial", 12))
@@ -344,6 +411,8 @@ ir_action_button.pack(pady=5)
 
 camera_button = tk.Button(root, text="Start Camera", command=toggle_camera)
 camera_button.pack(pady=6)
+
+
 
 # Start the UI loop
 root.mainloop()
