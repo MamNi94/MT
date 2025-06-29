@@ -10,14 +10,20 @@ from ultralytics import YOLO
 import serial.tools.list_ports
 import matplotlib.pyplot as plt
 
+import struct
+from tkinter import ttk
+
 model = YOLO("Gripper Control/nivea_grasp.pt").to('cuda')
 
 closed_gripper = False
 timer = time.time()
 
+
+
 reading_ir = False
 ir_value = None
 ir_action_running = False
+feedback_on = False
 
 
 camera_running = False
@@ -53,7 +59,19 @@ default_servos = [
     {"name": "Finger Right Phi", "id": "10", "angle":125},
     {"name": "Finger Left Phi", "id": "12", "angle": 85},
     {"name": "Thumb Phi", "id": "14", "angle": 80},
+
 ]
+
+Gripper_State_Date = {
+    "IR" : None,
+    "pressure_left": None,
+    "angle_left": None,
+    "pressure_right": None,
+    "angle_right": None,
+    "pressure_thumb": None,
+    "angle_thumb": None,
+    
+}
 
 def init_servos():
     set_servo(5, 130-5)
@@ -83,6 +101,7 @@ def toggle_connection():
         except serial.SerialException as e:
             messagebox.showerror("Connection Error", str(e))
     else:
+        stop_data_reading()
         arduino.close()
         status_label.config(text="Disconnected", fg="red")
         connect_button.config(text="Connect")
@@ -116,63 +135,105 @@ def run_ir_action_loop():
     # Re-run after 100ms
     root.after(100, run_ir_action_loop)
         
-        
-def ir_reader_loop():
-    global reading_ir, ir_value
+
+   
+def data_reader_loop():
+    global reading_ir, ir_value, Gripper_State_Date, feedback_on 
     while reading_ir:
-        value = read_ir_data()
-        if value is not None:
+        read_data()
+        if Gripper_State_Date["IR"]  is not None:
             
-            voltage= value * (5/1023)
+            voltage= Gripper_State_Date["IR"] * (5/1023)
             ir_value = 27.86 * (voltage**(-1.15))
             ir_label.config(text=f"IR Value: {ir_value}")
+            print(Gripper_State_Date)
+            # Example update
+
+            
         #time.sleep(0.1)  # 10x per second
         
-def start_ir_reading():
+def start_data_reading():
     global reading_ir
     if not reading_ir:
         reading_ir = True
-        threading.Thread(target=ir_reader_loop, daemon=True).start()
+        threading.Thread(target=data_reader_loop, daemon=True).start()
 
-def stop_ir_reading():
+def stop_data_reading():
     global reading_ir
     reading_ir = False
         
-def read_ir_data():
+def read_data_string():
     if arduino and arduino.in_waiting > 0:
         line = arduino.readline().decode('utf-8').strip()
-        if line.startswith("IR,"):
+        if line.startswith("Data,"):
             try:
                 parts = line.split(',')
-                return int(parts[1])
+              
+                return int(parts[1]), int(parts[2]),int(parts[3]),int(parts[4]) ,int(parts[5]),int(parts[6]),int(parts[7])
             except (IndexError, ValueError):
                 pass
-    return None
+    return None, None, None, None
 
+#read data for binary mode
+def read_data():
+    
+    global Gripper_State_Date
+    
+    PACKET_SIZE = 14  # 7 * 2-byte integers
+
+    if arduino and arduino.in_waiting >= PACKET_SIZE:
+        data = arduino.read(PACKET_SIZE)
+        if len(data) == PACKET_SIZE:
+            try:
+                # '<7h' = little-endian, 7 short integers
+                values = struct.unpack('<7h', data)
+                #print("Received:", values)
+                # Return first 4 values, or modify as needed
+                keys = list(Gripper_State_Date.keys())
+                for key, value in zip(keys, values):
+                    if key == "angle_left":
+                        Gripper_State_Date[key] = abs(value-180)
+                        
+                    else:
+                        Gripper_State_Date[key] = value
+                
+                
+                return
+            except struct.error:
+                pass
+    return 
+
+
+        
+        
 #close gripper
 def close_gripper():
+    global feedback_on
+    feedback_on = True
+
     angle = 83
     set_servo(7, angle)
-    #time.sleep(0.001)
+ 
+    time.sleep(0.01)
 
     set_servo(5, angle-5)
-    #time.sleep(0.001)
-
+    time.sleep(0.01)
     set_servo(8,angle)
     
 #open gripper
 def open_gripper():
-    global closed_gripper, timer
+    global closed_gripper, feedback_on
+    feedback_on = False
     angle= 130
     set_servo(7, angle)
-    #time.sleep(0.001)
 
+    time.sleep(0.01)
     set_servo(5, angle-5)
-    #time.sleep(0.001)
-
+    time.sleep(0.01)
     set_servo(8, angle)
+
     closed_gripper = False
-    timer = time.time()
+ 
     
         
         
@@ -180,8 +241,9 @@ def set_servo(servo_id, angle):
     print(servo_id)
     print('angle before', angle)
     if int(servo_id) == 7:
+   
         angle = abs(angle-180)
-        print('angle after', angle)
+       
         
     if arduino and arduino.is_open:
         command = f"S,{servo_id},{angle}\n"
@@ -290,7 +352,7 @@ def toggle_camera():
     global camera_running, camera_capture
 
     if not camera_running:
-        camera_capture = cv2.VideoCapture(2)
+        camera_capture = cv2.VideoCapture(0)
         if not camera_capture.isOpened():
             messagebox.showerror("Camera Error", "Unable to open camera.")
             return
@@ -311,6 +373,7 @@ def show_camera_frame():
     if camera_running and camera_capture.isOpened():
         ret, frame = camera_capture.read()
         if ret:
+            results = model(frame, verbose = False)
             results = model(frame, verbose = False)
 
     # Annotate the frame with the results
@@ -345,6 +408,18 @@ def show_camera_frame():
         else:
             # User manually closed window
             toggle_camera()
+            
+            
+def update_table():
+    # Clear current rows
+    global Gripper_State_Date
+    for row in tree.get_children():
+        tree.delete(row)
+    # Insert new rows
+    for key, value in Gripper_State_Date.items():
+        tree.insert("", "end", values=(key, value))
+        
+    root.after(100, update_table)
 
 
 def on_closing():
@@ -354,12 +429,15 @@ def on_closing():
         arduino.close()
         print("Serial connection closed.")
     root.destroy()
+    
+    
+
      
 
 # Create the main window
 root = tk.Tk()
 root.title("Arduino Connector")
-root.geometry("700x700")
+root.geometry("700x900")
 
 root.protocol("WM_DELETE_WINDOW", on_closing)
 
@@ -381,8 +459,8 @@ control_frame.pack(pady=10)
 servo_controls = []
 # Create 6 rows of servo controls
 for i, servo in enumerate(default_servos):
-   control = create_servo_row(i, servo["name"], servo["id"], servo["angle"])
-   servo_controls.append(control)
+    control = create_servo_row(i, servo["name"], servo["id"], servo["angle"])
+    servo_controls.append(control)
     
 
 ir_label = tk.Label(root, text="IR Value: --", font=("Arial", 14))
@@ -400,10 +478,10 @@ open_button.grid(row=0, column=0, padx=5)
 close_button = tk.Button(gripper_frame, text="Close Gripper", width=15, command=close_gripper)
 close_button.grid(row=0, column=1, padx=5)
 
-start_button = tk.Button(button_frame, text="Start IR Reading", command=start_ir_reading)
+start_button = tk.Button(button_frame, text="Start Sensor Reading", command=start_data_reading)
 start_button.grid(row=0, column=0, padx=5)
 
-stop_button = tk.Button(button_frame, text="Stop IR Reading", command=stop_ir_reading)
+stop_button = tk.Button(button_frame, text="Stop Sensor Reading", command=stop_data_reading)
 stop_button.grid(row=0, column=1, padx=5)
 
 ir_action_button = tk.Button(root, text="Start IR Action", command=toggle_ir_action)
@@ -411,6 +489,16 @@ ir_action_button.pack(pady=5)
 
 camera_button = tk.Button(root, text="Start Camera", command=toggle_camera)
 camera_button.pack(pady=6)
+
+
+
+##Add Data Table
+columns = ("Parameter", "Value")
+tree = ttk.Treeview(root, columns=columns, show="headings", height=7)
+tree.heading("Parameter", text="Parameter")
+tree.heading("Value", text="Value")
+tree.pack(padx=10, pady=10)
+update_table() 
 
 
 
