@@ -108,18 +108,7 @@ def data_reader_loop():
             print(Gripper_State_Date)
             # Example update
             
-        '''
-        if feedback_on == True:
-            if Gripper_State_Date["pressure_left"]  > 200:
-                set_servo(7, Gripper_State_Date["angle_left"]  )
-                time.sleep(0.01)
-                print("Feedback Left")
-            if Gripper_State_Date["pressure_right"]  > 200:
-                set_servo(5,120  )
-                time.sleep(0.01)
-                print("Feedback Right")
-        '''
-            
+   
         #time.sleep(0.1)  # 10x per second
         
 def start_data_reading():
@@ -180,10 +169,10 @@ def read_data():
 def close_gripper():
     global feedback_on
     feedback_on = True
-    set_servo(7, 70)
+    set_servo(7, 75,300)
     time.sleep(0.01)
 
-    set_servo(5, 70)
+    set_servo(5, 70,300)
     time.sleep(0.01)
 
     set_servo(8,70)
@@ -192,7 +181,7 @@ def close_gripper():
 def open_gripper():
     global feedback_on 
     feedback_on = False
-    set_servo(7, 150)
+    set_servo(7, 155)
     time.sleep(0.01)
 
     set_servo(5, 150)
@@ -201,7 +190,7 @@ def open_gripper():
     set_servo(8, 150)
         
         
-def set_servo(servo_id, angle):
+def set_servo(servo_id, angle, pressure = None):
     print(servo_id)
     print('angle before', angle)
     if int(servo_id) == 7:
@@ -209,7 +198,10 @@ def set_servo(servo_id, angle):
        
         
     if arduino and arduino.is_open:
-        command = f"S,{servo_id},{angle}\n"
+        if pressure is None:
+            command = f"S,{servo_id},{angle}\n"
+        else:
+            command = f"S,{servo_id},{angle},{pressure}\n"
         arduino.write(command.encode())
        
     else:
