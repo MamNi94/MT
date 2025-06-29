@@ -15,15 +15,14 @@ from tkinter import ttk
 
 model = YOLO("Gripper Control/nivea_grasp.pt").to('cuda')
 
-closed_gripper = False
-timer = time.time()
-
 
 
 reading_ir = False
 ir_value = None
-ir_action_running = False
-feedback_on = False
+
+
+autograsp_running = False
+yolo_result = None
 
 
 camera_running = False
@@ -39,8 +38,6 @@ BAUDRATE = 9600
 
 k =425
 
-
-
 def find_arduino_port():
     ports = serial.tools.list_ports.comports()
     for port in ports:
@@ -48,7 +45,6 @@ def find_arduino_port():
         if "Arduino" in port.description or "ttyACM" in port.device or "ttyUSB" in port.device:
             return port.device
     return None
-
 
 
 # === DEFAULT SERVO SETTINGS ===
@@ -97,7 +93,7 @@ def toggle_connection():
             status_label.config(text="Connected", fg="green")
             connect_button.config(text="Disconnect")
             time.sleep(0.1)
-            init_servos()
+            #init_servos()
         except serial.SerialException as e:
             messagebox.showerror("Connection Error", str(e))
     else:
@@ -107,33 +103,31 @@ def toggle_connection():
         connect_button.config(text="Connect")
         
 
-def toggle_ir_action():
-    global ir_action_running
-    ir_action_running = not ir_action_running
+def toggle_autograsp_action():
+    global autograsp_running
+    autograsp_running = not autograsp_running
 
-    if ir_action_running:
-        ir_action_button.config(text="Stop IR Action")
-        run_ir_action_loop()
+    if autograsp_running:
+        ir_action_button.config(text="Stop Nivea Autograsp")
+        run_autograsp_action_loop()
     else:
-        ir_action_button.config(text="Start IR Action")
+        ir_action_button.config(text="Start Nivea Autograsp")
         
-def run_ir_action_loop():
-    global ir_action_running
-    if not ir_action_running:
+def run_autograsp_action_loop():
+    global autograsp_running, yolo_result
+    if not autograsp_running:
         return
 
-    if ir_value is not None:
-        print(f"IR Action using value: {ir_value}")
-        if ir_value <=10:
+    if yolo_result is not None:
+   
+        if yolo_result ==1:
             close_gripper()
-            ir_action_running = False
-            ir_action_button.config(text="Start IR Action")
-            
-        # Example: control a servo or trigger something
-        # set_servo(5, map_ir_to_angle(ir_value))
+            autograsp_running = False
+            ir_action_button.config(text="Start Nivea Autograsp")
+    
 
     # Re-run after 100ms
-    root.after(100, run_ir_action_loop)
+    root.after(100, run_autograsp_action_loop)
         
 
    
@@ -208,22 +202,21 @@ def read_data():
         
 #close gripper
 def close_gripper():
-    global feedback_on
-    feedback_on = True
+   
 
-    angle = 83
-    set_servo(7, angle)
+    angle = 70
+    set_servo(7, angle, 200)
  
-    time.sleep(0.01)
+    time.sleep(0.001)
 
-    set_servo(5, angle-5)
-    time.sleep(0.01)
-    set_servo(8,angle)
+    set_servo(5, angle-5, 200)
+    time.sleep(0.001)
+    set_servo(8,angle, 200)
     
 #open gripper
 def open_gripper():
-    global closed_gripper, feedback_on
-    feedback_on = False
+ 
+  
     angle= 130
     set_servo(7, angle)
 
@@ -232,7 +225,7 @@ def open_gripper():
     time.sleep(0.01)
     set_servo(8, angle)
 
-    closed_gripper = False
+ 
  
     
         
@@ -371,7 +364,7 @@ def toggle_camera():
         cv2.destroyWindow(camera_window_name)
 
 def show_camera_frame():
-    global camera_running, k, closed_gripper, timer
+    global camera_running, k, yolo_result
 
     if camera_running and camera_capture.isOpened():
         ret, frame = camera_capture.read()
@@ -381,22 +374,16 @@ def show_camera_frame():
 
     # Annotate the frame with the results
             annotated_frame = results[0].plot()
-            frame_bgr = cv2.cvtColor(annotated_frame, cv2.COLOR_RGB2BGR)
+         
             cv2.imshow(camera_window_name, annotated_frame)
             key = cv2.waitKey(1) & 0xFF
             #= ord('q')
             pred_idx = results[0].probs.top1
             
-            if pred_idx == 1 and closed_gripper == False and time.time()- timer >= 5:
-                close_gripper()
-                closed_gripper =True
+            yolo_result = pred_idx
                 
-
-          
-
-            print("Predicted class:", pred_idx, closed_gripper)              
-
-
+                
+       
             if key== ord('s'):
                      #cv2.imwrite(f'yolo_training/training_data/grasp_position/negative/negative_{k}.jpg',frame)
                      cv2.imwrite(f'yolo_training/training_data/grasp_position/positive/positive_{k}.jpg',frame)
@@ -487,7 +474,7 @@ start_button.grid(row=0, column=0, padx=5)
 stop_button = tk.Button(button_frame, text="Stop Sensor Reading", command=stop_data_reading)
 stop_button.grid(row=0, column=1, padx=5)
 
-ir_action_button = tk.Button(root, text="Start IR Action", command=toggle_ir_action)
+ir_action_button = tk.Button(root, text="Start Nivea Autograsp", command=toggle_autograsp_action)
 ir_action_button.pack(pady=5)
 
 camera_button = tk.Button(root, text="Start Camera", command=toggle_camera)
