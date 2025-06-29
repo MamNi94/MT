@@ -74,13 +74,13 @@ def init_servos():
     time.sleep(0.01)
     set_servo(7, 130)
     time.sleep(0.01)
-    set_servo(9, 130)
+    set_servo(8, 130)
     time.sleep(0.01)
     set_servo(10, 100)
     time.sleep(0.01)
     set_servo(12, 45)
     time.sleep(0.01)
-    set_servo(14, 80)
+    set_servo(14, 74)
 
 
 
@@ -93,7 +93,7 @@ def toggle_connection():
             status_label.config(text="Connected", fg="green")
             connect_button.config(text="Disconnect")
             time.sleep(0.1)
-            #init_servos()
+            init_servos()
         except serial.SerialException as e:
             messagebox.showerror("Connection Error", str(e))
     else:
@@ -204,14 +204,15 @@ def read_data():
 def close_gripper():
    
 
-    angle = 70
-    set_servo(7, angle, 200)
+    angle = 75
+    pressure =300
+    set_servo(7, angle+7, 100)
  
     time.sleep(0.001)
 
-    set_servo(5, angle-5, 200)
+    set_servo(5, angle, 150)
     time.sleep(0.001)
-    set_servo(8,angle, 200)
+    set_servo(8,angle+9, 150)
     
 #open gripper
 def open_gripper():
