@@ -214,6 +214,15 @@ def close_gripper():
     time.sleep(0.001)
     set_servo(8,angle+9, 150)
     
+    time.sleep(1)
+    set_servo(7, angle+7, 500)
+ 
+    time.sleep(0.001)
+
+    set_servo(5, angle, 550)
+    time.sleep(0.001)
+    set_servo(8,angle+9, 550)
+    
 #open gripper
 def open_gripper():
  
