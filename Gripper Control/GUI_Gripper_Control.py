@@ -358,7 +358,7 @@ def toggle_camera():
     global camera_running, camera_capture
 
     if not camera_running:
-        camera_capture = cv2.VideoCapture(0)
+        camera_capture = cv2.VideoCapture(2)
         if not camera_capture.isOpened():
             messagebox.showerror("Camera Error", "Unable to open camera.")
             return
