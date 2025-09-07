@@ -13,7 +13,7 @@ import matplotlib.pyplot as plt
 import struct
 from tkinter import ttk
 
-model = YOLO("Gripper Control/nivea_grasp.pt").to('cuda')
+model = YOLO("nivea_grasp.pt").to('cuda')
 
 
 
@@ -132,7 +132,7 @@ def run_autograsp_action_loop():
 
    
 def data_reader_loop():
-    global reading_ir, ir_value, Gripper_State_Date, feedback_on 
+    global reading_ir, ir_value, Gripper_State_Date 
     while reading_ir:
         read_data()
         if Gripper_State_Date["IR"]  is not None:
@@ -174,7 +174,7 @@ def read_data():
     global Gripper_State_Date
     
     PACKET_SIZE = 14  # 7 * 2-byte integers
-
+    print("in waiting ", arduino.in_waiting)
     if arduino and arduino.in_waiting >= PACKET_SIZE:
         data = arduino.read(PACKET_SIZE)
         if len(data) == PACKET_SIZE:
