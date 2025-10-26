@@ -1,34 +1,184 @@
-#include <LSM6DS3.h>
+
 #include <Wire.h>
+#include <Adafruit_PWMServoDriver.h>
 
-LSM6DS3 myIMU(I2C_MODE, 0x6A); 
-float aX, aY, aZ;
+Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();
+
+String inputString = "";
+bool stringComplete = false;
+
+// Servo parameters
+#define SERVO_MIN  150  // Pulse length count for 0°
+#define SERVO_MAX  600  // Pulse length count for 180°
+
+const int irPin = A0;    // Infrared sensor pin
+const int pressurePin_left = A1;
+const int pressurePin_right = A2;
+const int pressurePin_thumb = A3;
+
+const int servo_list[] = {5,7,8,10,12,14};
+
+unsigned long lastIRReport = 0;
+unsigned long last_control_action = 0;
+
+const unsigned long irInterval = 100;  // 100ms = 10 Hz
+int servoAngles[16] = {0}; 
+int servoTargets[16] = {0}; 
+int pressureTargets[16] = {100};
 
 
-void setup(){
-  
+void setup() {
   Serial.begin(9600);
-
-  while(!Serial);
-  Serial.println("Hello from setup");
-
-   if (myIMU.begin() != 0) {
-    Serial.println("Device error");
-  } else {
-    Serial.println("aX,aY,aZ,gX,gY,gZ");
-  }
+  pwm.begin();
+  pwm.setPWMFreq(50);  // 50 Hz for analog servos
+  delay(10);
 }
 
 void loop() {
-  aX = myIMU.readFloatAccelX();
-  aY = myIMU.readFloatAccelY();
-  aZ = myIMU.readFloatAccelZ();
+  // Handle incoming serial commands
+  while (Serial.available()) {
+    char inChar = (char)Serial.read();
+    if (inChar == '\n') {
+      stringComplete = true;
+    } else {
+      inputString += inChar;
+    }
+  }
 
-  Serial.print(aX);
-  Serial.print(aY );
-  Serial.print(aZ);
-  Serial.println();
-  delay(100);
+  if (stringComplete) {
+    parseCommand(inputString);
+    inputString = "";
+    stringComplete = false;
+  }
 
   
+  // Report  sensor data every 100ms
+  if (millis() - last_control_action >= 10) {
+      updateServosSmooth();
+      last_control_action = millis();
+  }
+
+
+  if (millis() - lastIRReport >= irInterval) {
+    
+    int16_t values[] = {
+    analogRead(irPin),
+    analogRead(pressurePin_left),
+    servoAngles[7],
+    analogRead(pressurePin_right),
+    servoAngles[5],
+    analogRead(pressurePin_thumb),
+    servoAngles[8]
+  };
+
+Serial.write((uint8_t*)values, sizeof(values)); 
+    
+    lastIRReport = millis();
+  }
+  
 }
+
+void updateServosSmooth() {
+
+
+  
+  for (int j= 0; j <6; j++) {
+
+    int i = servo_list[j];
+    int current = servoAngles[i];
+    int target = servoTargets[i];
+   
+
+    if (current != target) {
+      int step = (target > current) ? 1 : -1;
+      current += step;
+
+      
+
+      if(i ==5  && target<current){
+        int pressure_right = analogRead(pressurePin_right);
+        
+        if(pressure_right > pressureTargets[i]){
+        servoTargets[i] = servoAngles[i];
+        continue;
+
+        }
+      }
+
+      if(i ==7 && target>current){
+        int pressure_left = analogRead(pressurePin_left);
+        
+        if(pressure_left > pressureTargets[i]){
+          servoTargets[i] = servoAngles[i];
+          continue;
+
+        }
+        
+      }
+
+      if(i ==8 &&  target<current){
+        int pressure_thumb = analogRead(pressurePin_thumb);
+       
+        if(pressure_thumb > pressureTargets[i]){
+          servoTargets[i] = servoAngles[i];
+          continue;
+
+        }
+        
+      }
+      int pulse = map(current, 0, 180, SERVO_MIN, SERVO_MAX);
+      pwm.setPWM(i, 0, pulse);
+      servoAngles[i] = current;
+      
+    //delay(1);
+    }
+  }
+
+}
+
+
+
+void parseCommand(String cmd) { 
+  if (cmd.startsWith("S,")) {
+    int firstComma = cmd.indexOf(',');
+    int secondComma = cmd.indexOf(',', firstComma + 1);
+    int thirdComma = cmd.indexOf(',', secondComma + 1);
+
+    int servoID = cmd.substring(firstComma + 1, secondComma).toInt();
+    int angle;
+    int pressure = 100;
+
+    if (thirdComma != -1){
+      angle = cmd.substring(secondComma +1, thirdComma).toInt();
+      pressure = cmd.substring(thirdComma + 1).toInt();
+      
+    } else {
+      angle = cmd.substring(secondComma+1).toInt();
+    }
+
+
+
+
+    if (servoID >= 4 && servoID < 16 && angle >= 0 && angle <= 180) {
+      //int pulse = map(angle, 0, 180, SERVO_MIN, SERVO_MAX);
+      
+      servoTargets[servoID] = angle; 
+      pressureTargets[servoID] = pressure;
+    
+    }
+  }
+  else if (cmd.startsWith("P,")) {
+  int servoID = cmd.substring(2).toInt();
+  if (servoID >= 4 && servoID < 16) {
+    Serial.print("POS,");
+    Serial.print(servoID);
+    Serial.print(",");
+    Serial.println(servoAngles[servoID]);
+  }
+}
+
+}
+
+
+
+
