@@ -1,0 +1,34 @@
+#include <LSM6DS3.h>
+#include <Wire.h>
+
+LSM6DS3 myIMU(I2C_MODE, 0x6A); 
+float aX, aY, aZ;
+
+
+void setup(){
+  
+  Serial.begin(9600);
+
+  while(!Serial);
+  Serial.println("Hello from setup");
+
+   if (myIMU.begin() != 0) {
+    Serial.println("Device error");
+  } else {
+    Serial.println("aX,aY,aZ,gX,gY,gZ");
+  }
+}
+
+void loop() {
+  aX = myIMU.readFloatAccelX();
+  aY = myIMU.readFloatAccelY();
+  aZ = myIMU.readFloatAccelZ();
+
+  Serial.print(aX);
+  Serial.print(aY );
+  Serial.print(aZ);
+  Serial.println();
+  delay(100);
+
+  
+}
